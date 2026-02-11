@@ -1,0 +1,137 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// Enums
+// ============================================================
+
+enum UserRole {
+  ADMIN
+  USER
+}
+
+enum PostStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+// ============================================================
+// Models
+// ============================================================
+
+/// User - หลักสำหรับ Authentication และเป็นเจ้าของ Post/Comment
+model User {
+  id        String    @id @default(cuid())
+  email     String    @unique
+  name      String?
+  role      UserRole  @default(USER)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime? // Soft delete pattern
+
+  // Relations
+  profile  Profile?  // 1:1 relation
+  posts    Post[]    // 1:N relation
+  comments Comment[] // 1:N relation
+
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+/// Profile - ข้อมูลเพิ่มเติมของ User (1:1 Relation)
+model Profile {
+  id        String   @id @default(cuid())
+  bio       String?
+  avatar    String?
+  website   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("profiles")
+}
+
+/// Post - บทความ เชื่อมกับ User (N:1) และ Category (M:N)
+model Post {
+  id        String     @id @default(cuid())
+  title     String
+  content   String?    @db.Text
+  status    PostStatus @default(DRAFT)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  deletedAt DateTime?  // Soft delete pattern
+
+  // Relations
+  authorId   String
+  author     User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  comments   Comment[]      // 1:N relation
+  categories PostCategory[] // M:N relation via junction table
+
+  @@index([authorId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("posts")
+}
+
+/// Category - หมวดหมู่สำหรับ Post (M:N Relation)
+model Category {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  posts PostCategory[] // M:N relation via junction table
+
+  @@map("categories")
+}
+
+/// PostCategory - Junction table สำหรับ M:N ระหว่าง Post กับ Category
+model PostCategory {
+  postId     String
+  categoryId String
+  assignedAt DateTime @default(now())
+
+  // Relations
+  post     Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([postId, categoryId])
+  @@map("post_categories")
+}
+
+/// Comment - ความคิดเห็น รองรับ Self-referencing (nested replies)
+model Comment {
+  id        String   @id @default(cuid())
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  authorId String
+  author   User    @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  postId   String
+  post     Post    @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  // Self-referencing relation for nested replies
+  parentId String?
+  parent   Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies  Comment[] @relation("CommentReplies")
+
+  @@index([postId])
+  @@index([authorId])
+  @@index([parentId])
+  @@map("comments")
+}
